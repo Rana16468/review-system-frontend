@@ -3,7 +3,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 
 const baseQuery = fetchBaseQuery({
-    baseUrl: " http://localhost:5000/api/v1",
+    baseUrl: "https://re-backend-mu.vercel.app/api/v1",
     prepareHeaders: (headers) => {
         let token: string | null = null;
         if (typeof window !== "undefined") {
@@ -25,6 +25,6 @@ const baseQuery = fetchBaseQuery({
 export const baseApi = createApi({
     reducerPath: "baseApi",
     baseQuery,
-    tagTypes: [ "auth", "assigment", "submission"],
+    tagTypes: ["auth", "assigment", "submission"],
     endpoints: () => ({}),
 });

@@ -13,11 +13,11 @@ export function Navbar() {
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
 
   const [scrolled, setScrolled] = useState(false);
-  // কোন পেজে menu খোলা হয়েছিল সেটা রাখছি; পেজ বদলালেই menu নিজে থেকে বন্ধ হয়ে যায়
+ 
   const [openPath, setOpenPath] = useState<string | null>(null);
   const open = openPath !== null && openPath === pathname;
 
-  // Scroll করলে navbar-এ shadow আসবে (শুধু event callback-এ setState)
+  
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });

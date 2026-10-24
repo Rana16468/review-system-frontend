@@ -11,7 +11,7 @@ export const assigmentApi = baseApi.injectEndpoints({
             invalidatesTags: ["assigment"],
         }),
 
-        // params: { page, limit }
+       
         getAssigments: builder.query({
             query: (params) => ({
                 url: "/assigment/my_all_assigment",
@@ -23,8 +23,7 @@ export const assigmentApi = baseApi.injectEndpoints({
 
         updateAssigment: builder.mutation({
             query: ({ id, data }) => ({
-                // NOTE: added the "/assigment" prefix to match your other routes.
-                // Remove it if your backend really uses "/update_assigment/:id".
+            
                 url: `/assigment/update_assigment/${id}`,
                 method: "PATCH",
                 body: data,

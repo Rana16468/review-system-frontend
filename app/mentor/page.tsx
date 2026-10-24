@@ -1,21 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  ClipboardEvent as ReactClipboardEvent,
-  FormEvent,
-  ReactNode,
-} from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 import type { SerializedError } from "@reduxjs/toolkit";
-import DOMPurify from "isomorphic-dompurify";
-import ErrorPage from "@/src/components/ErrorPage/ErrorPage";
-import { useGetSpecificAssigmentQuery } from "@/src/components/redux/features/assigmentApi";
 import {
-  useSpecificSubmissionAssigemtQuery,
-  useSubmitAssigmentMutation,
-} from "@/src/components/redux/features/submissionApi";
+  useCreateAssigmentMutation,
+  useDeleteAssigmentMutation,
+  useGetAssigmentsQuery,
+  useUpdateAssigmentMutation,
+} from "@/src/components/redux/features/assigmentApi";
+import Link from "next/link";
 
 /* ----------------------------- Types & helpers ----------------------------- */
 
@@ -23,111 +19,74 @@ type Assignment = {
   id: string;
   batch: string;
   title: string;
-  description: string; // HTML string from the server
-  deadline: string;
+  description: string; // HTML from the rich text editor
+  deadline: string; // ISO string from the API
+  isDeleted?: boolean;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 };
 
-type SubmissionStatus = "PENDING" | "SUBMITTED" | "REVIEWED" | "REJECTED";
-
-type Submission = {
-  status: SubmissionStatus;
-  marks?: number | null;
-  feedback?: string | null;
+type Meta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPage: number;
 };
 
-/** Matches the backend DTO. */
-type SubmissionPayload = {
-  assignmentId: string;
-  /** HTML string produced by the rich text editor */
-  description: string;
-  /** Optional note for the mentor */
-  notes?: string;
+// Shape of GET response: { success, message, data: { meta, data: Assignment[] } }
+type AssignmentsResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    meta: Meta;
+    data: Assignment[];
+  };
 };
 
-const STATUS_META: Record<SubmissionStatus, { label: string; tone: string }> = {
-  PENDING: {
-    label: "Pending",
-    tone: "bg-slate-500/15 text-slate-300 ring-slate-500/30",
-  },
-  SUBMITTED: {
-    label: "Submitted",
-    tone: "bg-sky-500/10 text-sky-300 ring-sky-500/30",
-  },
-  REVIEWED: {
-    label: "Reviewed",
-    tone: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30",
-  },
-  REJECTED: {
-    label: "Rejected",
-    tone: "bg-rose-500/10 text-rose-300 ring-rose-500/30",
-  },
+const PAGE_SIZES = [5, 10, 20, 50];
+
+const todayISO = () => {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 };
 
-const formatDate = (iso: string): string =>
-  new Date(iso).toLocaleString("en-GB", {
+/** ISO datetime -> yyyy-mm-dd in the user's local time (for <input type="date">) */
+const toDateInput = (iso: string) => {
+  const d = new Date(iso);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
 
-type DeadlineState = {
-  expired: boolean;
-  label: string;
-  hint: string;
-  tone: string;
+/** Calendar days until the deadline; negative once the deadline has passed. */
+const daysLeft = (deadline: string) => {
+  const end = new Date(deadline);
+  if (end.getTime() < Date.now()) return -1;
+  const startOf = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round(
+    (startOf(end) - startOf(new Date())) / (1000 * 60 * 60 * 24),
+  );
 };
 
-const getDeadlineState = (iso: string): DeadlineState => {
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) {
-    return {
-      expired: true,
-      label: "Closed",
-      hint: "The submission deadline has passed.",
-      tone: "bg-rose-500/10 text-rose-300 ring-rose-500/30",
-    };
-  }
-  const days = Math.ceil(diff / 86_400_000);
-  const label = `${days} day${days === 1 ? "" : "s"} left`;
-  return days <= 3
-    ? {
-        expired: false,
-        label,
-        hint: "Deadline is close. Submit soon.",
-        tone: "bg-amber-500/10 text-amber-300 ring-amber-500/30",
-      }
-    : {
-        expired: false,
-        label,
-        hint: "You have enough time.",
-        tone: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30",
-      };
-};
-
-/** Converts a server submission (or null) into the UI shape. */
-const toSubmission = (
-  raw: Partial<Submission> | null | undefined,
-): Submission | null => {
-  if (!raw) return null;
-  const status =
-    raw.status && raw.status in STATUS_META ? raw.status : "SUBMITTED";
-  return { status, marks: raw.marks ?? null, feedback: raw.feedback ?? null };
-};
-
-/** Turns any RTK Query / thrown error into a readable message. */
+/** Turns any RTK Query error into a readable message for the user. */
 const getErrorMessage = (err: unknown): string => {
-  const fallback = "Something went wrong. Please try again.";
-  if (!err || typeof err !== "object") return fallback;
-  const e = err as FetchBaseQueryError | SerializedError;
+  const e = err as FetchBaseQueryError | SerializedError | undefined;
+  if (!e) return "Something went wrong. Please try again.";
 
   if ("status" in e) {
     switch (e.status) {
       case "FETCH_ERROR":
-        return "Cannot reach the server. Check your connection and try again.";
+        return "Can't reach the server. Check your connection and try again.";
       case "TIMEOUT_ERROR":
         return "The request timed out. Please try again.";
       case "PARSING_ERROR":
@@ -136,875 +95,814 @@ const getErrorMessage = (err: unknown): string => {
         return "Your session has expired. Please log in again.";
       case 403:
         return "You don't have permission to do this.";
-      case 409:
-        return "You have already submitted this assignment.";
+      case 404:
+        return "This assignment no longer exists. It may have been deleted.";
     }
     const data = e.data as { message?: string | string[] } | string | undefined;
     if (typeof data === "string" && data) return data;
-    if (data && typeof data === "object" && data.message) {
+    if (data && typeof data === "object" && data.message)
       return Array.isArray(data.message)
         ? data.message.join(", ")
         : data.message;
-    }
-    return `Request failed (${String(e.status)}). Please try again.`;
+    return `Request failed (${e.status}). Please try again.`;
   }
-  return e.message ?? fallback;
+  return e.message ?? "Something went wrong. Please try again.";
 };
 
-/* ------------------------- Feedback (HTML) rendering ------------------------- */
-
-const FEEDBACK_TAGS = [
-  "b",
-  "strong",
-  "i",
-  "em",
-  "u",
-  "s",
-  "strike",
-  "p",
-  "br",
-  "div",
-  "span",
-  "ul",
-  "ol",
-  "li",
-  "a",
-  "h2",
-  "h3",
-  "h4",
-  "blockquote",
-  "pre",
-  "code",
-];
-
-// Links in feedback always open in a new tab safely
-DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "A") {
-    node.setAttribute("target", "_blank");
-    node.setAttribute("rel", "noopener noreferrer");
-  }
-});
-
-const sanitizeFeedback = (html: string): string =>
-  DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: FEEDBACK_TAGS,
-    ALLOWED_ATTR: ["href"],
-  });
-
-const looksLikeHtml = (s: string) => /<[a-z][\s\S]*>/i.test(s);
-
-const FeedbackContent = ({ value }: { value: string }) => {
-  const clean = useMemo(
-    () => (looksLikeHtml(value) ? sanitizeFeedback(value) : ""),
-    [value],
-  );
-
-  const box =
-    "rounded-lg bg-slate-800/60 px-3 py-2 leading-6 text-slate-200 ring-1 ring-slate-700";
-
-  // Old feedback saved as plain text keeps working
-  if (!clean) {
-    return <p className={`whitespace-pre-line ${box}`}>{value}</p>;
-  }
-
-  return (
-    <div
-      className={`${box} break-words
-        [&_p]:my-1
-        [&_strong]:font-semibold [&_strong]:text-white
-        [&_b]:font-semibold [&_b]:text-white
-        [&_h2]:my-1 [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-white
-        [&_h3]:my-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:text-white
-        [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5
-        [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5
-        [&_blockquote]:my-1 [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-500/60 [&_blockquote]:pl-3 [&_blockquote]:text-slate-300
-        [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-slate-950 [&_pre]:p-2 [&_pre]:text-xs
-        [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_code]:text-indigo-200
-        [&_a]:font-medium [&_a]:text-indigo-300 [&_a]:underline`}
-      dangerouslySetInnerHTML={{ __html: clean }}
-    />
-  );
+/** Builds [1, "…", 4, 5, 6, "…", 10] style page lists. */
+const getPageItems = (page: number, total: number): (number | "…")[] => {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const items: (number | "…")[] = [1];
+  const start = Math.max(2, page - 1);
+  const end = Math.min(total - 1, page + 1);
+  if (start > 2) items.push("…");
+  for (let i = start; i <= end; i++) items.push(i);
+  if (end < total - 1) items.push("…");
+  items.push(total);
+  return items;
 };
 
-/* ------------------------------- UI pieces ------------------------------- */
+/* ------------------------------ Shared styles ------------------------------ */
 
 const focusRing =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400";
 
-const Pill = ({ tone, children }: { tone: string; children: ReactNode }) => (
-  <span
-    suppressHydrationWarning
-    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${tone}`}>
-    {children}
-  </span>
-);
-
-const EmptyState = () => (
-  <div className="mx-auto mt-24 max-w-sm rounded-2xl border border-dashed border-slate-700 bg-slate-900 px-6 py-12 text-center">
-    <h2 className="text-base font-semibold text-white">
-      No assignment selected
-    </h2>
-    <p className="mt-1 text-sm text-slate-400">
-      Pick an assignment from the list to view it here.
-    </p>
-  </div>
-);
-
-const LoadingSkeleton = () => (
-  <div className="flex h-full animate-pulse flex-col gap-4 p-4" aria-busy="true">
-    <div className="h-14 rounded-xl bg-slate-900 ring-1 ring-slate-800" />
-    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1fr_300px]">
-      <div className="rounded-2xl bg-slate-900 ring-1 ring-slate-800" />
-      <div className="hidden rounded-2xl bg-slate-900 ring-1 ring-slate-800 lg:block" />
-    </div>
-  </div>
-);
-
-const InfoRow = ({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) => (
-  <div className="flex items-center justify-between gap-3 py-2 text-sm">
-    <dt className="text-slate-400">{label}</dt>
-    <dd className="text-right font-medium text-slate-100">{children}</dd>
-  </div>
-);
-
-const primaryBtn = `rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none ${focusRing}`;
+const ghostBtn = `rounded-md border border-slate-700 bg-slate-800/40 px-3 py-1 text-sm font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
 /* ---------------------------- Rich text editor ---------------------------- */
 
-type Tool =
-  | "sep"
-  | { label: string; title: string; cmd: string; arg?: string; cls?: string };
+const ToolbarButton = ({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    className={`rounded px-2.5 py-1 text-sm transition-colors ${focusRing} ${
+      active
+        ? "bg-indigo-600 text-white"
+        : "text-slate-300 hover:bg-slate-700 hover:text-white"
+    }`}>
+    {label}
+  </button>
+);
 
-const TOOLS: Tool[] = [
-  { label: "B", title: "Bold (Ctrl+B)", cmd: "bold", cls: "font-bold" },
-  { label: "I", title: "Italic (Ctrl+I)", cmd: "italic", cls: "italic" },
-  {
-    label: "U",
-    title: "Underline (Ctrl+U)",
-    cmd: "underline",
-    cls: "underline",
-  },
-  {
-    label: "S",
-    title: "Strikethrough",
-    cmd: "strikeThrough",
-    cls: "line-through",
-  },
-  "sep",
-  {
-    label: "H2",
-    title: "Heading",
-    cmd: "formatBlock",
-    arg: "h2",
-    cls: "font-bold",
-  },
-  {
-    label: "H3",
-    title: "Subheading",
-    cmd: "formatBlock",
-    arg: "h3",
-    cls: "font-bold",
-  },
-  { label: "P", title: "Normal text", cmd: "formatBlock", arg: "p" },
-  "sep",
-  { label: "• List", title: "Bulleted list", cmd: "insertUnorderedList" },
-  { label: "1. List", title: "Numbered list", cmd: "insertOrderedList" },
-  { label: "Quote", title: "Quote", cmd: "formatBlock", arg: "blockquote" },
-  { label: "Code block", title: "Code block", cmd: "formatBlock", arg: "pre" },
-  "sep",
-  { label: "Left", title: "Align left", cmd: "justifyLeft" },
-  { label: "Center", title: "Align center", cmd: "justifyCenter" },
-  { label: "Right", title: "Align right", cmd: "justifyRight" },
-  "sep",
-  { label: "Undo", title: "Undo (Ctrl+Z)", cmd: "undo" },
-  { label: "Redo", title: "Redo (Ctrl+Y)", cmd: "redo" },
-];
-
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-const normalizeUrl = (value: string): string | null => {
-  const v = value.trim();
-  if (!v) return null;
-  const withProtocol = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-  try {
-    const u = new URL(withProtocol);
-    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
-  } catch {
-    return null;
-  }
-};
-
-type RichTextEditorProps = {
-  disabled?: boolean;
-  onChange: (html: string, isEmpty: boolean) => void;
-};
-
-const RichTextEditor = ({ disabled, onChange }: RichTextEditorProps) => {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const savedRange = useRef<Range | null>(null);
-  const [empty, setEmpty] = useState(true);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [linkUrl, setLinkUrl] = useState("");
-  const [linkError, setLinkError] = useState("");
-
-  useEffect(() => {
-    editorRef.current?.focus();
-  }, []);
-
-  const sync = () => {
-    const el = editorRef.current;
-    if (!el) return;
-    const isEmpty = (el.textContent ?? "").trim() === "";
-    setEmpty(isEmpty);
-    onChange(isEmpty ? "" : el.innerHTML, isEmpty);
-  };
-
-  const run = (cmd: string, arg?: string) => {
-    editorRef.current?.focus();
-    document.execCommand(cmd, false, arg);
-    sync();
-  };
-
-  const runInlineCode = () => {
-    editorRef.current?.focus();
-    const text = window.getSelection()?.toString();
-    if (!text) return;
-    document.execCommand(
-      "insertHTML",
-      false,
-      `<code>${escapeHtml(text)}</code>`,
-    );
-    sync();
-  };
-
-  const openLink = () => {
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount && editorRef.current?.contains(sel.anchorNode)) {
-      savedRange.current = sel.getRangeAt(0).cloneRange();
-    }
-    setLinkUrl("");
-    setLinkError("");
-    setLinkOpen(true);
-  };
-
-  const applyLink = () => {
-    const href = normalizeUrl(linkUrl);
-    if (!href) {
-      setLinkError("Enter a valid link, e.g. https://github.com/you/project");
-      return;
-    }
-    editorRef.current?.focus();
-    const sel = window.getSelection();
-    if (savedRange.current && sel) {
-      sel.removeAllRanges();
-      sel.addRange(savedRange.current);
-    }
-    if (sel && sel.toString()) {
-      document.execCommand("createLink", false, href);
-    } else {
-      document.execCommand(
-        "insertHTML",
-        false,
-        `<a href="${escapeHtml(href)}">${escapeHtml(href)}</a>&nbsp;`,
-      );
-    }
-    setLinkOpen(false);
-    sync();
-  };
-
-  // Paste as plain text (no foreign styles); a pasted URL becomes a link.
-  const handlePaste = (e: ReactClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
-    const single = text.trim();
-    if (
-      !/\s/.test(single) &&
-      /^https?:\/\//i.test(single) &&
-      normalizeUrl(single)
-    ) {
-      document.execCommand(
-        "insertHTML",
-        false,
-        `<a href="${escapeHtml(single)}">${escapeHtml(single)}</a>&nbsp;`,
-      );
-    } else {
-      document.execCommand("insertText", false, text);
-    }
-    sync();
-  };
-
-  const btn =
-    "rounded-md px-2 py-1 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-white disabled:opacity-50";
-
+const Toolbar = ({ editor }: { editor: Editor | null }) => {
+  if (!editor) return null;
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-700 bg-slate-950 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20">
-      {/* Toolbar: onMouseDown preventDefault keeps the text selection */}
-      <div
-        className="flex flex-wrap items-center gap-0.5 border-b border-slate-700 bg-slate-800/60 px-2 py-1.5"
-        role="toolbar"
-        aria-label="Text formatting"
-        onMouseDown={(e) => {
-          if ((e.target as HTMLElement).tagName !== "INPUT") e.preventDefault();
-        }}>
-        {TOOLS.map((t, i) =>
-          t === "sep" ? (
-            <span
-              key={i}
-              className="mx-1 h-4 w-px bg-slate-600"
-              aria-hidden="true"
-            />
-          ) : (
-            <button
-              key={t.title}
-              type="button"
-              title={t.title}
-              disabled={disabled}
-              onClick={() => run(t.cmd, t.arg)}
-              className={`${btn} ${t.cls ?? ""}`}>
-              {t.label}
-            </button>
-          ),
-        )}
-        <button
-          type="button"
-          title="Inline code"
-          disabled={disabled}
-          onClick={runInlineCode}
-          className={`${btn} font-mono`}>
-          {"</>"}
-        </button>
-        <span className="mx-1 h-4 w-px bg-slate-600" aria-hidden="true" />
-        <button
-          type="button"
-          title="Insert link"
-          disabled={disabled}
-          onClick={openLink}
-          className={btn}>
-          Link
-        </button>
-        <button
-          type="button"
-          title="Remove link"
-          disabled={disabled}
-          onClick={() => run("unlink")}
-          className={btn}>
-          Unlink
-        </button>
-        <button
-          type="button"
-          title="Clear formatting"
-          disabled={disabled}
-          onClick={() => run("removeFormat")}
-          className={btn}>
-          Clear
-        </button>
-      </div>
-
-      {linkOpen && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-700 bg-indigo-500/10 px-3 py-2">
-          <input
-            autoFocus
-            type="url"
-            inputMode="url"
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                applyLink();
-              }
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setLinkOpen(false);
-              }
-            }}
-            placeholder="https://…"
-            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-100 [color-scheme:dark] placeholder:text-slate-500 focus-visible:border-indigo-500 focus-visible:outline-none"
-          />
-          <button
-            type="button"
-            onClick={applyLink}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">
-            Add link
-          </button>
-          <button
-            type="button"
-            onClick={() => setLinkOpen(false)}
-            className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700">
-            Cancel
-          </button>
-          {linkError && (
-            <p className="w-full text-xs font-medium text-rose-400">
-              {linkError}
-            </p>
-          )}
-        </div>
-      )}
-
-      <div className="relative">
-        {empty && (
-          <p className="pointer-events-none absolute left-4 top-3 text-sm text-slate-500">
-            Write your answer, paste your project link, or both…
-          </p>
-        )}
-        <div
-          ref={editorRef}
-          contentEditable={!disabled}
-          suppressContentEditableWarning
-          role="textbox"
-          aria-multiline="true"
-          aria-label="Submission content"
-          onInput={sync}
-          onPaste={handlePaste}
-          className="
-            h-56 max-h-[40vh] overflow-y-auto px-4 py-3 text-sm leading-7 text-slate-100 caret-slate-100 outline-none
-            [&_h2]:my-2 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-white
-            [&_h3]:my-2 [&_h3]:text-base [&_h3]:font-bold [&_h3]:text-white
-            [&_p]:my-1
-            [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5
-            [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5
-            [&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-500/60 [&_blockquote]:bg-indigo-500/10 [&_blockquote]:px-3 [&_blockquote]:py-1 [&_blockquote]:text-slate-300
-            [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-slate-800 [&_pre]:bg-slate-900 [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs [&_pre]:text-slate-100
-            [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_code]:text-indigo-200
-            [&_a]:font-medium [&_a]:text-indigo-300 [&_a]:underline
-          "
-        />
-      </div>
+    <div className="flex flex-wrap gap-1 border-b border-slate-700 bg-slate-800/60 p-1.5">
+      <ToolbarButton
+        label="Bold"
+        active={editor.isActive("bold")}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+      />
+      <ToolbarButton
+        label="Italic"
+        active={editor.isActive("italic")}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+      />
+      <ToolbarButton
+        label="Heading"
+        active={editor.isActive("heading", { level: 2 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+      />
+      <ToolbarButton
+        label="Bullets"
+        active={editor.isActive("bulletList")}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+      />
+      <ToolbarButton
+        label="Numbered"
+        active={editor.isActive("orderedList")}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+      />
+      <ToolbarButton
+        label="Code"
+        active={editor.isActive("codeBlock")}
+        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+      />
+      <ToolbarButton
+        label="Quote"
+        active={editor.isActive("blockquote")}
+        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+      />
     </div>
   );
 };
 
-/* ------------------------------ Submit modal ------------------------------ */
+/* ------------------------------- Share menu ------------------------------- */
 
-type SubmitModalProps = {
-  assignment: Assignment;
-  /** Calls the API. Throws on failure so the error is shown inside the modal. */
-  onSubmit: (payload: SubmissionPayload) => Promise<Submission>;
-  onClose: () => void;
-  onSubmitted: (submission: Submission) => void;
-};
+const ShareMenu = ({ id, title }: { id: string; title: string }) => {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-const SubmitModal = ({
-  assignment,
-  onSubmit,
-  onClose,
-  onSubmitted,
-}: SubmitModalProps) => {
-  const [content, setContent] = useState("");
-  const [isEmpty, setIsEmpty] = useState(true);
-  const [notes, setNotes] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-
+  // close when clicking outside / pressing Escape
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = prev;
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
     };
-  }, []);
+  }, [open]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isLoading) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isLoading, onClose]);
+  // only computed after a click, so window is always available here
+  const url = open
+    ? `${window.location.origin}/assigment?assigementId=${id}`
+    : "";
+  const text = `New assignment: ${title}`;
+  const u = encodeURIComponent(url);
+  const t = encodeURIComponent(text);
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (isLoading) return;
-    if (isEmpty) return setError("Write your submission or add a link.");
-    if (!confirmed) return setError("Please confirm before submitting.");
+  const targets = [
+    {
+      name: "WhatsApp",
+      href: `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`,
+    },
+    {
+      name: "Facebook",
+      href: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
+    },
+    { name: "Telegram", href: `https://t.me/share/url?url=${u}&text=${t}` },
+    {
+      name: "X (Twitter)",
+      href: `https://twitter.com/intent/tweet?text=${t}&url=${u}`,
+    },
+    {
+      name: "LinkedIn",
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${u}`,
+    },
+    { name: "Email", href: `mailto:?subject=${t}&body=${u}` },
+  ];
 
-    setError("");
-    setIsLoading(true);
+  const copyLink = async () => {
     try {
-      const trimmedNotes = notes.trim();
-      const result = await onSubmit({
-        assignmentId: assignment.id,
-        description: content,
-        ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-      });
-      onSubmitted(result);
-    } catch (err) {
-      setError(getErrorMessage(err)); // modal stays open, content preserved
-    } finally {
-      setIsLoading(false);
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("Copy this link:", url);
+    }
+  };
+
+  const nativeShare = async () => {
+    try {
+      await navigator.share({ title, text, url });
+      setOpen(false);
+    } catch {
+      /* user cancelled */
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/70 backdrop-blur-sm sm:items-center sm:p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !isLoading) onClose();
-      }}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="submit-heading"
-        className="w-full max-w-2xl overflow-hidden rounded-t-2xl border border-slate-800 bg-slate-900 shadow-2xl shadow-black/60 sm:rounded-2xl">
-        <div className="border-b border-slate-800 px-5 py-4">
-          <h2 id="submit-heading" className="text-base font-semibold text-white">
-            Submit assignment
-          </h2>
-          <p className="mt-0.5 line-clamp-1 text-sm text-slate-400">
-            {assignment.title}
-          </p>
-        </div>
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`rounded-md border border-indigo-500/50 bg-indigo-500/10 px-3 py-1 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20 ${focusRing}`}>
+        Share
+      </button>
 
-        <form onSubmit={handleSubmit} className="space-y-4 px-5 py-5" noValidate>
-          <div>
-            <p className="mb-1.5 text-sm font-medium text-slate-200">
-              Your submission <span className="text-rose-400">*</span>
-            </p>
-            <RichTextEditor
-              disabled={isLoading}
-              onChange={(html, empty) => {
-                setContent(html);
-                setIsEmpty(empty);
-              }}
-            />
-            <p className="mt-1 text-xs text-slate-400">
-              Add your answer, description and links (GitHub, Google Drive, live
-              site). Make sure links are public.
-            </p>
-          </div>
-
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label
-                htmlFor="note"
-                className="text-sm font-medium text-slate-200">
-                Note <span className="font-normal text-slate-400">(optional)</span>
-              </label>
-              <span className="text-xs text-slate-500">{notes.length}/1000</span>
-            </div>
-            <textarea
-              id="note"
-              rows={3}
-              maxLength={1000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={isLoading}
-              placeholder="Anything you'd like your mentor to know…"
-              className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 [color-scheme:dark] placeholder:text-slate-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20 disabled:opacity-50"
-            />
-          </div>
-
-          <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              disabled={isLoading}
-              onChange={(e) => setConfirmed(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-600 accent-indigo-500"
-            />
-            <span>This is my own work and the content is correct.</span>
-          </label>
-
-          {error && (
-            <p
-              role="alert"
-              className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-300 ring-1 ring-rose-500/30">
-              {error}
-            </p>
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-full right-0 z-20 mb-2 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl shadow-black/60">
+          {typeof navigator !== "undefined" && "share" in navigator && (
+            <button
+              role="menuitem"
+              onClick={nativeShare}
+              className="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800">
+              Share via device…
+            </button>
           )}
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isLoading}
-              className={`rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800 disabled:opacity-50 ${focusRing}`}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              aria-busy={isLoading}
-              className={primaryBtn}>
-              {isLoading ? "Submitting…" : "Submit"}
-            </button>
-          </div>
-        </form>
-      </div>
+          {targets.map((s) => (
+            <a
+              key={s.name}
+              role="menuitem"
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-slate-800">
+              {s.name}
+            </a>
+          ))}
+          <button
+            role="menuitem"
+            onClick={copyLink}
+            className="block w-full rounded px-3 py-2 text-left text-sm font-medium text-indigo-300 hover:bg-slate-800">
+            {copied ? "Link copied ✓" : "Copy link"}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
 /* --------------------------------- Page --------------------------------- */
 
-const AssigmentPage = () => {
-  const searchParams = useSearchParams();
-  const assignmentId = searchParams.get("assigementId");
+const Page = () => {
+  // list controls (server-side search + pagination)
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState(""); // debounced value sent to API
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  // Set right after a successful submit; the server copy below covers page reloads.
-  const [localSubmission, setLocalSubmission] = useState<Submission | null>(
-    null,
-  );
-  const [toast, setToast] = useState("");
-
-  const { data, isLoading, error } = useGetSpecificAssigmentQuery(
-    assignmentId as string,
-    {
-      skip: !assignmentId,
-    },
-  );
-
-  // Loading/error state is handled inside the modal via try/catch + unwrap()
-  const [submitAssignment] = useSubmitAssigmentMutation();
-
-  // The student's existing submission (if any) for this assignment
-  const {
-    data: result,
-    isLoading: resultLoading,
-    error: resultError,
-    refetch: refetchSubmission,
-  } = useSpecificSubmissionAssigemtQuery(assignmentId as string, {
-    skip: !assignmentId,
-  });
-
-  // 404 means "nothing submitted yet", which is a normal state, not an error.
-  const submissionNotFound =
-    !!resultError && "status" in resultError && resultError.status === 404;
-  const submissionLoadError =
-    resultError && !submissionNotFound ? getErrorMessage(resultError) : "";
-  const submission = localSubmission ?? toSubmission(result?.data);
-
-  const assignment: Assignment | undefined = data?.data;
-  const closeModal = useCallback(() => setModalOpen(false), []);
-
+  // debounce search, and go back to page 1 whenever the term changes
+  // (setState runs inside the timeout callback, not synchronously in the effect)
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(""), 4000);
+    const t = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 400);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [searchInput]);
 
-  // .unwrap() throws on any non-2xx response or network failure,
-  // so SubmitModal's catch block shows the message and keeps the user's content.
-  const handleCreateSubmission = async (
-    payload: SubmissionPayload,
-  ): Promise<Submission> => {
-    const res = await submitAssignment(payload).unwrap();
-    const saved = res?.data ?? res;
-    return {
-      status: saved?.status ?? "SUBMITTED",
-      marks: saved?.marks ?? null,
-      feedback: saved?.feedback ?? null,
-    };
+  const [createAssigment, { isLoading: createLoading }] =
+    useCreateAssigmentMutation();
+  const [updateAssigment, { isLoading: updateLoading }] =
+    useUpdateAssigmentMutation();
+  const [deleteAssigment] = useDeleteAssigmentMutation();
+
+  const isSaving = createLoading || updateLoading; // form request in flight
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const {
+    data: response,
+    isLoading: assigmentLoading, // true only on the very first load
+    isFetching, // true on every refetch (page / search change)
+    error: assigmentError,
+    refetch,
+  } = useGetAssigmentsQuery({
+    page,
+    limit,
+    searchTerm: searchTerm || undefined,
+  }) as {
+    data?: AssignmentsResponse;
+    isLoading: boolean;
+    isFetching: boolean;
+    error?: unknown;
+    refetch: () => void;
   };
 
-  if (assignmentId && error) return <ErrorPage error={error} />;
+  const assignments: Assignment[] = response?.data?.data ?? [];
+  const meta: Meta = response?.data?.meta ?? {
+    page,
+    limit,
+    total: 0,
+    totalPage: 1,
+  };
 
-  const deadline = assignment ? getDeadlineState(assignment.deadline) : null;
-  const status = submission ? STATUS_META[submission.status] : null;
-  const canSubmit =
-    !!assignment && !deadline?.expired && !submission && !resultLoading;
-  const submitLabel = submission
-    ? "Submitted ✓"
-    : deadline?.expired
-      ? "Closed"
-      : "Submit assignment";
+  // If the current page no longer exists (e.g. after deleting), step back.
+  // Done during render (React-approved pattern) instead of inside an effect,
+  // which avoids the "setState synchronously within an effect" error.
+  if (response && !isFetching && meta.totalPage >= 1 && page > meta.totalPage) {
+    setPage(meta.totalPage);
+  }
 
-  const submitButton = (className = "") => (
-    <button
-      type="button"
-      onClick={() => setModalOpen(true)}
-      disabled={!canSubmit}
-      className={`${primaryBtn} ${className}`}>
-      {submitLabel}
-    </button>
+  const pageItems = useMemo(
+    () => getPageItems(meta.page, meta.totalPage),
+    [meta.page, meta.totalPage],
   );
+  const from = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1;
+  const to = Math.min(meta.page * meta.limit, meta.total);
 
-  // The page itself never scrolls; only the description panel does.
+  // modal + form state
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [originalDeadline, setOriginalDeadline] = useState(""); // ISO of the item being edited
+  const [batch, setBatch] = useState("");
+  const [title, setTitle] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState(""); // success / error message
+  const [noticeKind, setNoticeKind] = useState<"success" | "error">("success");
+
+  const showNotice = (msg: string, kind: "success" | "error" = "success") => {
+    setNoticeKind(kind);
+    setNotice(msg);
+  };
+
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: "",
+    immediatelyRender: false, // avoids SSR hydration mismatch in Next.js
+    editorProps: {
+      attributes: {
+        class: "rich min-h-[180px] p-3 text-slate-100 focus:outline-none",
+      },
+    },
+  });
+
+  const closeForm = () => {
+    setOpen(false);
+    setEditingId(null);
+    setOriginalDeadline("");
+    setBatch("");
+    setTitle("");
+    setDeadline("");
+    setError("");
+    editor?.commands.setContent("");
+  };
+
+  // close modal on Escape (but not while a request is in flight)
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && !isSaving && closeForm();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isSaving]);
+
+  // auto-hide the notice
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const openCreate = () => {
+    closeForm();
+    setOpen(true);
+  };
+
+  const openEdit = (a: Assignment) => {
+    setEditingId(a.id);
+    setOriginalDeadline(a.deadline);
+    setBatch(a.batch);
+    setTitle(a.title);
+    setDeadline(toDateInput(a.deadline));
+    setError("");
+    setOpen(true);
+    editor?.commands.setContent(a.description);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSaving) return; // block double submits
+
+    if (!batch.trim()) return setError("Enter a batch.");
+    if (!title.trim()) return setError("Add a title.");
+    if (!editor || editor.isEmpty) return setError("Describe the assignment.");
+    if (!deadline) return setError("Pick a deadline.");
+
+    const deadlineChanged =
+      !editingId || deadline !== toDateInput(originalDeadline);
+
+    // only block past dates for new assignments or when the date was changed
+    if (deadlineChanged && deadline < todayISO())
+      return setError("The deadline can't be in the past.");
+
+    const body = {
+      batch: batch.trim(),
+      title: title.trim(),
+      description: editor.getHTML(),
+      // unchanged date on edit -> resend the original ISO value untouched;
+      // otherwise convert "yyyy-mm-dd" to an ISO datetime (end of that day)
+      deadline: deadlineChanged
+        ? new Date(`${deadline}T23:59:59`).toISOString()
+        : originalDeadline,
+    };
+
+    setError("");
+
+    try {
+      if (editingId) {
+        // ---- Update (API) ----
+        // NOTE: if your mutation expects a different argument shape
+        // (e.g. { id, ...body }), change it here.
+        await updateAssigment({ id: editingId, data: body }).unwrap();
+        closeForm();
+        showNotice("Assignment updated successfully.");
+        refetch();
+      } else {
+        // ---- Create (API) ----
+        await createAssigment(body).unwrap();
+        closeForm();
+        showNotice("Assignment posted successfully.");
+
+        // show the new item: clear search, go to page 1 and refresh the list
+        setSearchInput("");
+        setSearchTerm("");
+        setPage(1);
+        refetch();
+      }
+    } catch (err) {
+      // modal stays open and the mentor's input is preserved
+      setError(getErrorMessage(err));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (deletingId) return; // one delete at a time
+    if (
+      !window.confirm("Delete this assignment? Students will no longer see it.")
+    )
+      return;
+
+    setDeletingId(id);
+    try {
+      await deleteAssigment({ id }).unwrap();
+
+      if (expandedId === id) setExpandedId(null);
+      showNotice("Assignment deleted.");
+
+      // deleted the last item on this page -> go back one page,
+      // otherwise just refresh the current one
+      if (assignments.length === 1 && page > 1) setPage(page - 1);
+      else refetch();
+    } catch (err) {
+      showNotice(getErrorMessage(err), "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const fieldClass = `w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 [color-scheme:dark] disabled:bg-slate-800/60 disabled:text-slate-400 ${focusRing}`;
+
+  const pageBtn = `min-w-9 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`;
+
   return (
-    <main className="flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-100">
-      {!assignmentId ? (
-        <EmptyState />
-      ) : isLoading ? (
-        <LoadingSkeleton />
-      ) : assignment ? (
-        <>
-          {/* Top bar */}
-          <header className="shrink-0 border-b border-slate-800 bg-slate-900 px-4 py-3 sm:px-6">
-            <div className="mx-auto flex max-w-6xl items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="rounded bg-indigo-500/10 px-2 py-0.5 font-semibold capitalize text-indigo-300 ring-1 ring-inset ring-indigo-500/25">
-                    {assignment.batch}
-                  </span>
-                  <span suppressHydrationWarning className="truncate">
-                    Due {formatDate(assignment.deadline)}
-                  </span>
-                </div>
-                <h1 className="mt-1 truncate text-lg font-bold text-white sm:text-xl">
-                  {assignment.title}
-                </h1>
-              </div>
-              {deadline && <Pill tone={deadline.tone}>{deadline.label}</Pill>}
-              {submitButton("hidden lg:block")}
-            </div>
-          </header>
+    <main className="mx-auto max-w-5xl px-4 py-10 text-slate-100">
+      {/* Rich text content styles (Tailwind preflight removes list/heading defaults) */}
+      <style>{`
+        .rich { caret-color: #e2e8f0; }
+        .rich h2 { font-size: 1.25rem; font-weight: 600; margin: .75rem 0 .4rem; color: #f8fafc; }
+        .rich p { margin: .4rem 0; }
+        .rich ul { list-style: disc; padding-left: 1.4rem; margin: .4rem 0; }
+        .rich ol { list-style: decimal; padding-left: 1.4rem; margin: .4rem 0; }
+        .rich li::marker { color: #818cf8; }
+        .rich strong { color: #f8fafc; }
+        .rich blockquote { border-left: 3px solid #6366f1; padding-left: .8rem; color: #94a3b8; margin: .5rem 0; }
+        .rich pre { background: #020617; color: #e2e8f0; border: 1px solid #1e293b; padding: .75rem; border-radius: .5rem; overflow-x: auto; margin: .5rem 0; }
+        .rich code { font-family: ui-monospace, monospace; font-size: .9em; }
+        .rich :not(pre) > code { background: #1e293b; color: #c7d2fe; padding: .1rem .35rem; border-radius: .25rem; }
+        .rich a { color: #a5b4fc; text-decoration: underline; }
+      `}</style>
 
-          {toast && (
-            <p
-              role="status"
-              className="mx-auto mt-3 w-full max-w-6xl shrink-0 rounded-lg bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-300 ring-1 ring-emerald-500/30">
-              {toast}
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-white">
+            Mentor dashboard
+          </h1>
+          <p className="mt-1 text-slate-400">
+            Post assignments to a batch and manage what students see.
+          </p>
+        </div>
+        <button
+          onClick={openCreate}
+          className={`rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 px-5 py-2.5 font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:-translate-y-0.5 hover:shadow-indigo-500/40 ${focusRing}`}>
+          + New assignment
+        </button>
+      </header>
+
+      {notice && (
+        <p
+          role={noticeKind === "error" ? "alert" : "status"}
+          className={`mb-4 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+            noticeKind === "success"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/30 bg-red-500/10 text-red-300"
+          }`}>
+          {notice}
+        </p>
+      )}
+
+      {/* ------------------------------ Cards ------------------------------ */}
+      <section aria-labelledby="list-heading">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 id="list-heading" className="text-xl font-semibold text-white">
+            Posted assignments
+          </h2>
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search batch, title or description"
+            aria-label="Search assignments by batch, title or description"
+            className={`w-72 max-w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 [color-scheme:dark] ${focusRing}`}
+          />
+        </div>
+
+        <div
+          className={`transition-opacity ${
+            isFetching && !assigmentLoading ? "opacity-60" : ""
+          }`}
+          aria-busy={isFetching}>
+          {assigmentLoading ? (
+            <p className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-10 text-center text-slate-400">
+              Loading assignments…
             </p>
-          )}
+          ) : assigmentError ? (
+            <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-10 text-center">
+              <p role="alert" className="font-medium text-red-400">
+                {getErrorMessage(assigmentError)}
+              </p>
+              <button onClick={() => refetch()} className={`mt-3 ${ghostBtn}`}>
+                Try again
+              </button>
+            </div>
+          ) : assignments.length === 0 ? (
+            <p className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-10 text-center text-slate-400">
+              {searchTerm
+                ? `No assignments match “${searchTerm}”.`
+                : "No assignments yet. Select “New assignment” to post your first one."}
+            </p>
+          ) : (
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {assignments.map((a) => {
+                const left = daysLeft(a.deadline);
+                const closed = left < 0;
+                const expanded = expandedId === a.id;
+                const deleting = deletingId === a.id;
+                return (
+                  <li
+                    key={a.id}
+                    className={`flex flex-col rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-lg shadow-black/30 transition-colors hover:border-slate-700 ${
+                      deleting ? "opacity-50" : ""
+                    }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-lg font-semibold leading-snug text-white">
+                        {a.title}
+                      </h3>
+                      <span
+                        className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                          closed
+                            ? "border-red-500/30 bg-red-500/10 text-red-300"
+                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        }`}>
+                        {closed
+                          ? "Closed"
+                          : left === 0
+                            ? "Due today"
+                            : `${left} day${left === 1 ? "" : "s"} left`}
+                      </span>
+                    </div>
 
-          {/* Body */}
-          <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-3 p-3 sm:p-4 lg:grid lg:grid-cols-[1fr_280px] lg:gap-4">
-            {/* Description: the only scrolling area */}
-            <article className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-slate-800">
-              <h2 className="shrink-0 border-b border-slate-800 px-5 py-3 text-sm font-semibold text-white">
-                Description
-              </h2>
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 [scrollbar-gutter:stable]">
-                <div
-                  className="
-                    max-w-none text-sm leading-7 text-slate-300
-                    [&_h2]:mb-2 [&_h2]:mt-6 [&_h2]:border-l-4 [&_h2]:border-indigo-500 [&_h2]:pl-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-white
-                    [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:border-l-4 [&_h3]:border-indigo-500 [&_h3]:pl-3 [&_h3]:text-base [&_h3]:font-bold [&_h3]:text-white
-                    [&_h4]:mb-1 [&_h4]:mt-4 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-white
-                    [&_h2:first-child]:mt-0 [&_h3:first-child]:mt-0
-                    [&_p]:my-2
-                    [&_strong]:font-semibold [&_strong]:text-white
-                    [&_ul]:my-2 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5
-                    [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5
-                    [&_ul_ul]:list-[circle]
-                    [&_li::marker]:text-indigo-400
-                    [&_blockquote]:my-3 [&_blockquote]:rounded-r-lg [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-500/60 [&_blockquote]:bg-indigo-500/10 [&_blockquote]:px-3 [&_blockquote]:py-1.5 [&_blockquote]:text-slate-300
-                    [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-slate-800 [&_pre]:bg-slate-950 [&_pre]:p-3 [&_pre]:text-xs [&_pre]:text-slate-100
-                    [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-slate-100
-                    [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs [&_code]:text-indigo-200
-                    [&_a]:font-medium [&_a]:text-indigo-300 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-indigo-200
-                    [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-lg
-                  "
-                  // Sanitize with DOMPurify if this HTML can come from untrusted sources
-                  dangerouslySetInnerHTML={{ __html: assignment.description }}
+                    <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-950/60 p-3 text-sm">
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-slate-500">
+                          Batch
+                        </dt>
+                        <dd className="mt-0.5 font-medium text-slate-100">
+                          {a.batch}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-slate-500">
+                          Deadline
+                        </dt>
+                        <dd className="mt-0.5 font-medium text-slate-100">
+                          {formatDate(a.deadline)}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {expanded && (
+                      <div className="mt-3 border-t border-slate-800 pt-3">
+                        {/* Sanitize with DOMPurify before rendering HTML that comes from a server */}
+                        <div
+                          className="rich text-slate-300"
+                          dangerouslySetInnerHTML={{ __html: a.description }}
+                        />
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
+                      <button
+                        onClick={() => setExpandedId(expanded ? null : a.id)}
+                        aria-expanded={expanded}
+                        className={ghostBtn}>
+                        {expanded ? "Hide" : "View"}
+                      </button>
+                      <button
+                        onClick={() => openEdit(a)}
+                        disabled={deleting}
+                        className={ghostBtn}>
+                        Edit
+                      </button>
+                      <Link
+                        href={`/submitted_assigment?assigmentId=${a.id}`}
+                        className={`inline-flex items-center justify-center rounded-md border border-slate-700 bg-slate-800/40 px-3 py-1 text-sm font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 ${focusRing}`}>
+                        Submission
+                      </Link>
+                      <ShareMenu id={a.id} title={a.title} />
+                      <button
+                        onClick={() => handleDelete(a.id)}
+                        disabled={deletingId !== null}
+                        aria-busy={deleting}
+                        className={`ml-auto rounded-md border border-red-500/40 px-3 py-1 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}>
+                        {deleting ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* ---------------------------- Pagination ---------------------------- */}
+        {!assigmentLoading && !assigmentError && meta.total > 0 && (
+          <nav
+            aria-label="Pagination"
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-slate-400" aria-live="polite">
+                Showing {from}–{to} of {meta.total}
+              </p>
+              <label className="flex items-center gap-2 text-slate-400">
+                Per page
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className={`rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 [color-scheme:dark] ${focusRing}`}>
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={meta.page <= 1 || isFetching}
+                className={pageBtn}>
+                Previous
+              </button>
+
+              {pageItems.map((item, i) =>
+                item === "…" ? (
+                  <span key={`gap-${i}`} className="px-1 text-slate-500">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    onClick={() => setPage(item)}
+                    disabled={isFetching}
+                    aria-current={item === meta.page ? "page" : undefined}
+                    className={`${pageBtn} ${
+                      item === meta.page
+                        ? "!border-indigo-500 !bg-indigo-600 !text-white hover:!bg-indigo-600"
+                        : ""
+                    }`}>
+                    {item}
+                  </button>
+                ),
+              )}
+
+              <button
+                onClick={() => setPage((p) => Math.min(meta.totalPage, p + 1))}
+                disabled={meta.page >= meta.totalPage || isFetching}
+                className={pageBtn}>
+                Next
+              </button>
+            </div>
+          </nav>
+        )}
+      </section>
+
+      {/* ------------------------------ Form modal ------------------------------ */}
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+          onMouseDown={(e) =>
+            e.target === e.currentTarget && !isSaving && closeForm()
+          }>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="form-heading"
+            className="my-8 w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-black/60">
+            <h2
+              id="form-heading"
+              className="mb-5 text-xl font-semibold text-white">
+              {editingId ? "Edit assignment" : "New assignment"}
+            </h2>
+
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="batch"
+                    className="mb-1 block text-sm font-medium text-slate-300">
+                    Batch
+                  </label>
+                  <input
+                    id="batch"
+                    type="text"
+                    value={batch}
+                    disabled={isSaving}
+                    onChange={(e) => setBatch(e.target.value)}
+                    placeholder="e.g. Batch 5"
+                    className={fieldClass}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="deadline"
+                    className="mb-1 block text-sm font-medium text-slate-300">
+                    Deadline
+                  </label>
+                  <input
+                    id="deadline"
+                    type="date"
+                    min={editingId ? undefined : todayISO()}
+                    value={deadline}
+                    disabled={isSaving}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="title"
+                  className="mb-1 block text-sm font-medium text-slate-300">
+                  Title
+                </label>
+                <input
+                  id="title"
+                  type="text"
+                  value={title}
+                  disabled={isSaving}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Build a responsive navbar"
+                  className={fieldClass}
                 />
               </div>
-              <footer
-                suppressHydrationWarning
-                className="shrink-0 border-t border-slate-800 bg-slate-950/60 px-5 py-2 text-xs text-slate-400">
-                Last updated {formatDate(assignment.updatedAt)}
-              </footer>
-            </article>
 
-            {/* Sidebar */}
-            <aside className="max-h-[38%] shrink-0 space-y-3 overflow-y-auto lg:max-h-none">
-              <section className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-800">
-                <h2 className="text-sm font-semibold text-white">Submission</h2>
-                <dl className="mt-1 divide-y divide-slate-800">
-                  <InfoRow label="Status">
-                    {resultLoading && !submission ? (
-                      <Pill tone="bg-slate-500/15 text-slate-400 ring-slate-500/30">
-                        Checking…
-                      </Pill>
-                    ) : status ? (
-                      <Pill tone={status.tone}>{status.label}</Pill>
-                    ) : (
-                      <Pill tone="bg-slate-500/15 text-slate-300 ring-slate-500/30">
-                        Not submitted
-                      </Pill>
-                    )}
-                  </InfoRow>
-                  <InfoRow label="Deadline">
-                    <span suppressHydrationWarning>
-                      {formatDate(assignment.deadline)}
-                    </span>
-                  </InfoRow>
-                </dl>
-                {submissionLoadError && !submission && (
-                  <div
-                    role="alert"
-                    className="mt-2 rounded-lg bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-300 ring-1 ring-rose-500/30">
-                    <p>Could not load your submission status. {submissionLoadError}</p>
-                    <button
-                      type="button"
-                      onClick={() => refetchSubmission()}
-                      className="mt-1 font-semibold underline underline-offset-2 hover:text-rose-200">
-                      Try again
-                    </button>
-                  </div>
-                )}
-                {deadline && !submission && (
-                  <p
-                    suppressHydrationWarning
-                    className={`mt-2 rounded-lg px-3 py-2 text-xs font-medium ring-1 ring-inset ${deadline.tone}`}>
-                    {deadline.hint}
-                  </p>
-                )}
-              </section>
+              <div>
+                <span className="mb-1 block text-sm font-medium text-slate-300">
+                  Description
+                </span>
+                <div className="overflow-hidden rounded-md border border-slate-700 bg-slate-950 focus-within:outline focus-within:outline-2 focus-within:outline-indigo-400">
+                  <Toolbar editor={editor} />
+                  <EditorContent editor={editor} />
+                </div>
+              </div>
 
-              {submission && (
-                <section className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-800">
-                  <h2 className="text-sm font-semibold text-white">
-                    Mentor review
-                  </h2>
-                  {submission.status === "REVIEWED" ||
-                  submission.status === "REJECTED" ? (
-                    <div className="mt-2 space-y-2 text-sm">
-                      {typeof submission.marks === "number" && (
-                        <div className="flex items-center justify-between rounded-lg bg-indigo-500/10 px-3 py-2 ring-1 ring-inset ring-indigo-500/25">
-                          <span className="text-slate-300">Marks</span>
-                          <span className="text-lg font-bold text-indigo-300">
-                            {submission.marks}
-                          </span>
-                        </div>
-                      )}
-                      {submission.feedback && (
-                        <FeedbackContent value={submission.feedback} />
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-sm text-slate-400">
-                      Waiting for your mentor to review. Marks and feedback will
-                      appear here.
-                    </p>
-                  )}
-                </section>
+              {error && (
+                <p
+                  role="alert"
+                  className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300">
+                  {error}
+                </p>
               )}
-            </aside>
-          </div>
 
-          {/* Mobile submit bar */}
-          <div className="shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-2.5 lg:hidden">
-            {submitButton("w-full")}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  disabled={isSaving}
+                  className={`rounded-md border border-slate-700 bg-slate-800/40 px-4 py-2 font-medium text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  aria-busy={isSaving}
+                  className={`rounded-md bg-gradient-to-r from-indigo-600 to-blue-600 px-5 py-2 font-semibold text-white shadow-md shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}>
+                  {isSaving
+                    ? editingId
+                      ? "Saving…"
+                      : "Posting…"
+                    : editingId
+                      ? "Save changes"
+                      : "Post assignment"}
+                </button>
+              </div>
+            </form>
           </div>
-
-          {modalOpen && (
-            <SubmitModal
-              assignment={assignment}
-              onSubmit={handleCreateSubmission}
-              onClose={closeModal}
-              onSubmitted={(s) => {
-                setLocalSubmission(s);
-                setModalOpen(false);
-                setToast("Your assignment was submitted successfully.");
-              }}
-            />
-          )}
-        </>
-      ) : (
-        <EmptyState />
+        </div>
       )}
     </main>
   );
 };
 
-export default AssigmentPage;
+export default Page;
