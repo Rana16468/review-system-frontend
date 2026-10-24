@@ -144,15 +144,11 @@ export function Navbar() {
             </>
           ) : (
             <div className="flex items-center gap-2">
-              <Link
-                href="/login"
-                className={`rounded-lg px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 ${focusRing}`}>
-                Log in
-              </Link>
+            
               <Link
                 href="/signup"
                 className={`rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/30 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/40 active:translate-y-0 ${focusRing}`}>
-                Sign up
+                Account
               </Link>
             </div>
           )}
