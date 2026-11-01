@@ -145,7 +145,7 @@ function RoleIcon({ role }: { role: Role }) {
   );
 }
 
-function BrandMark() {
+function BrandMark({ lightText = false }: { lightText?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500 text-white shadow-lg shadow-blue-500/30">
@@ -154,7 +154,10 @@ function BrandMark() {
           <path d="m9 14 2 2 4-4" />
         </svg>
       </span>
-      <span className="text-xl font-bold tracking-tight text-white">
+      <span
+        className={`text-xl font-bold tracking-tight ${
+          lightText ? "text-slate-900 dark:text-white" : "text-white"
+        }`}>
         EduPortal
       </span>
     </div>
@@ -341,7 +344,7 @@ export default function SignupPage() {
 
   return (
     <GoogleOAuthProvider clientId={googleClientId}>
-      <main className="grid min-h-[100dvh] bg-[#060B1F] text-slate-100 lg:grid-cols-2">
+      <main className="theme-scope grid min-h-[100dvh] bg-[#060B1F] text-slate-900 dark:text-slate-100 lg:grid-cols-2">
         <BrandPanel />
 
         <section className="relative flex min-h-[100dvh] items-stretch justify-center overflow-hidden sm:items-center sm:px-8">
@@ -352,7 +355,7 @@ export default function SignupPage() {
           <div className="relative flex w-full max-w-md flex-col justify-center bg-[#0C1636] sm:block sm:bg-transparent">
             {/* Mobile brand (the left panel is hidden below lg) */}
             <div className="flex justify-center px-5 pt-8 pb-2 sm:px-0 sm:pt-0 sm:pb-0 sm:mb-6 lg:hidden">
-              <BrandMark />
+              <BrandMark lightText />
             </div>
 
             <div className="flex flex-1 flex-col justify-center bg-[#0C1636] px-5 pb-8 pt-4 sm:flex-none sm:rounded-2xl sm:border sm:border-white/10 sm:p-9 sm:shadow-2xl sm:shadow-black/40">
@@ -444,7 +447,7 @@ export default function SignupPage() {
                       setPendingProfile(null);
                       setErrorMsg("");
                     }}
-                    className="mt-3 w-full rounded-lg py-2 text-sm font-medium text-slate-400 transition-colors hover:text-white disabled:opacity-60">
+                    className="mt-3 w-full rounded-lg py-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 disabled:opacity-60 dark:text-slate-400 dark:hover:text-white">
                     Use a different Google account
                   </button>
                 </div>

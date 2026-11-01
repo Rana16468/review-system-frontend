@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { logout } from "../redux/slices/authSlice";
 import { useAppDispatch, useAppSelector } from "../redux/hooks";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function Navbar() {
   const dispatch = useAppDispatch();
@@ -13,11 +14,10 @@ export function Navbar() {
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
 
   const [scrolled, setScrolled] = useState(false);
- 
+
   const [openPath, setOpenPath] = useState<string | null>(null);
   const open = openPath !== null && openPath === pathname;
 
-  
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -38,11 +38,11 @@ export function Navbar() {
           { href: "/profile", label: "Profile" },
         ]
       : role === "MENTOR"
-      ? [
-          { href: "/mentor", label: "Dashboard" },
-          { href: "/profile", label: "Profile" },
-        ]
-      : [];
+        ? [
+            { href: "/mentor", label: "Dashboard" },
+            { href: "/profile", label: "Profile" },
+          ]
+        : [];
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
@@ -87,12 +87,14 @@ export function Navbar() {
             </svg>
           </span>
           <span className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
-            Edu<span className="text-indigo-600 dark:text-indigo-400">Portal</span>
+            Edu
+            <span className="text-indigo-600 dark:text-indigo-400">Portal</span>
           </span>
         </Link>
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+          <ThemeToggle />
           {isAuthenticated ? (
             <>
               {links.map((l) => (
@@ -144,7 +146,6 @@ export function Navbar() {
             </>
           ) : (
             <div className="flex items-center gap-2">
-            
               <Link
                 href="/signup"
                 className={`rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/30 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/40 active:translate-y-0 ${focusRing}`}>
@@ -156,7 +157,7 @@ export function Navbar() {
 
         {/* Mobile toggle */}
         <button
-          onClick={() => setOpenPath(open ? null : pathname ?? "")}
+          onClick={() => setOpenPath(open ? null : (pathname ?? ""))}
           aria-expanded={open}
           aria-label={open ? "Close menu" : "Open menu"}
           className={`flex h-10 w-10 items-center justify-center rounded-lg text-slate-700 transition-colors hover:bg-slate-100 md:hidden dark:text-slate-200 dark:hover:bg-slate-800 ${focusRing}`}>
@@ -180,12 +181,15 @@ export function Navbar() {
       {/* Mobile menu */}
       <div
         className={`grid overflow-hidden transition-all duration-300 md:hidden ${
-          open ? "grid-rows-[1fr] border-t border-slate-200 dark:border-slate-800" : "grid-rows-[0fr]"
+          open
+            ? "grid-rows-[1fr] border-t border-slate-200 dark:border-slate-800"
+            : "grid-rows-[0fr]"
         }`}>
         <div className="min-h-0">
           <nav
             className="container mx-auto flex flex-col gap-1 px-4 py-4"
             aria-label="Mobile">
+            <ThemeToggle />
             {isAuthenticated ? (
               <>
                 <div className="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">

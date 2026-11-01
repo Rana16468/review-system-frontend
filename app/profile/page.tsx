@@ -87,7 +87,7 @@ const Card = ({
   className?: string;
 }) => (
   <section
-    className={`rounded-2xl bg-[#0C1636] p-5 ring-1 ring-white/10 ${className}`}>
+    className={`rounded-2xl bg-[#0C1636] p-5 ring-1 ring-white/10 shadow-xl shadow-slate-950/10 ${className}`}>
     <h2 className="text-sm font-semibold text-white">{title}</h2>
     <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
     <div className="mt-4">{children}</div>
@@ -139,7 +139,7 @@ const Loading = () => (
     <div className="h-28 bg-[#0C1636] sm:h-36" />
     <div className="mx-auto max-w-5xl px-4 sm:px-6">
       <div className="-mt-10 flex items-end gap-4">
-        <div className="h-20 w-20 rounded-2xl bg-[#101C42] ring-4 ring-[#060B1F]" />
+        <div className="h-20 w-20 rounded-2xl bg-[#101C42] ring-4 ring-slate-50 dark:ring-[#060B1F]" />
         <div className="mb-1 space-y-2">
           <div className="h-4 w-40 rounded bg-[#101C42]" />
           <div className="h-3 w-52 rounded bg-[#0C1636]" />
@@ -164,7 +164,7 @@ const ProfilePage = () => {
 
   if (isLoading || !data?.data) {
     return (
-      <main className="min-h-screen bg-[#060B1F]">
+      <main className="theme-scope min-h-screen bg-[#060B1F]">
         <Loading />
       </main>
     );
@@ -184,7 +184,7 @@ const ProfilePage = () => {
   };
 
   return (
-    <main className="min-h-screen bg-[#060B1F] pb-6 text-slate-100">
+    <main className="theme-scope min-h-screen bg-[#060B1F] pb-6 text-slate-100">
       {/* Banner */}
       <div className="relative h-28 overflow-hidden bg-gradient-to-r from-[#0F1E4D] via-[#132B72] to-[#0A1330] sm:h-36">
         <div className="absolute -left-16 -top-24 h-64 w-64 rounded-full bg-blue-500/25 blur-3xl" />
@@ -197,7 +197,7 @@ const ProfilePage = () => {
             backgroundSize: "20px 20px",
           }}
         />
-        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#060B1F] to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-50 to-transparent dark:from-[#060B1F]" />
       </div>
 
       <div className="mx-auto max-w-5xl px-4 sm:px-6">
@@ -211,10 +211,10 @@ const ProfilePage = () => {
                 alt={user.name}
                 referrerPolicy="no-referrer"
                 onError={() => setImgFailed(true)}
-                className="h-20 w-20 rounded-2xl object-cover ring-4 ring-[#060B1F] sm:h-24 sm:w-24"
+                className="h-20 w-20 rounded-2xl object-cover ring-4 ring-slate-50 dark:ring-[#060B1F] sm:h-24 sm:w-24"
               />
             ) : (
-              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white ring-4 ring-[#060B1F] sm:h-24 sm:w-24 sm:text-2xl">
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white ring-4 ring-slate-50 dark:ring-[#060B1F] sm:h-24 sm:w-24 sm:text-2xl">
                 {initials(user.name)}
               </div>
             )}
@@ -222,7 +222,7 @@ const ProfilePage = () => {
 
           <div className="min-w-0 flex-1 sm:pb-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight text-white sm:text-xl">
+              <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white sm:text-xl">
                 {user.name}
               </h1>
               {user.isVerify && (
@@ -312,7 +312,7 @@ const ProfilePage = () => {
                         type="button"
                         onClick={() => void copyId()}
                         aria-label="Copy user ID"
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white">
                         <Icon path={icons.copy} className="h-3 w-3" />
                         {copied ? "Copied" : "Copy"}
                       </button>

@@ -5,13 +5,14 @@ import { Providers } from '@/src/components/Providers';
 import { Navbar } from '@/src/components/layout/Navbar';
 import { Footer } from '@/src/components/layout/Footer';
 import { AuthGuard } from '@/src/utility/AuthGuard';
+import Script from 'next/script';
 
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Project Review Platfrom ',
-  description: 'Submit and review student assignments seamlessly',
+  title: 'EduPortal | Assignment review',
+  description: 'Create, submit, and review student assignments in one place.',
 };
 
 export default function RootLayout({
@@ -20,13 +21,31 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} min-h-screen flex flex-col bg-white text-black antialiased `}>
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
+      <body className={`${inter.className} flex min-h-screen flex-col antialiased`}>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`try {
+  const savedTheme = localStorage.getItem("theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme =
+    savedTheme === "light" || savedTheme === "dark"
+      ? savedTheme
+      : prefersDark
+        ? "dark"
+        : "light";
+} catch {
+  document.documentElement.dataset.theme = "light";
+}`}
+        </Script>
         <Providers>
           <Navbar />
-          <main className="flex-1 container mx-auto px-4 py-8">
-           <AuthGuard>{children}</AuthGuard>
-          </main>
+          <div className="flex-1">
+            <AuthGuard>{children}</AuthGuard>
+          </div>
           <Footer />
         </Providers>
       </body>

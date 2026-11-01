@@ -147,7 +147,7 @@ const ToolbarButton = ({
     className={`rounded px-2.5 py-1 text-sm transition-colors ${focusRing} ${
       active
         ? "bg-indigo-600 text-white"
-        : "text-slate-300 hover:bg-slate-700 hover:text-white"
+        : "text-slate-700 hover:bg-slate-200 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
     }`}>
     {label}
   </button>
@@ -280,12 +280,12 @@ const ShareMenu = ({ id, title }: { id: string; title: string }) => {
       {open && (
         <div
           role="menu"
-          className="absolute bottom-full right-0 z-20 mb-2 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl shadow-black/60">
+          className="absolute bottom-full right-0 z-20 mb-2 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl shadow-black/20 dark:shadow-black/60">
           {typeof navigator !== "undefined" && "share" in navigator && (
             <button
               role="menuitem"
               onClick={nativeShare}
-              className="block w-full rounded px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800">
+              className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
               Share via device…
             </button>
           )}
@@ -297,14 +297,14 @@ const ShareMenu = ({ id, title }: { id: string; title: string }) => {
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setOpen(false)}
-              className="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-slate-800">
+              className="block rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
               {s.name}
             </a>
           ))}
           <button
             role="menuitem"
             onClick={copyLink}
-            className="block w-full rounded px-3 py-2 text-left text-sm font-medium text-indigo-300 hover:bg-slate-800">
+            className="block w-full rounded px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-slate-100 dark:text-indigo-300 dark:hover:bg-slate-800">
             {copied ? "Link copied ✓" : "Copy link"}
           </button>
         </div>
@@ -534,31 +534,15 @@ const Page = () => {
     }
   };
 
-  const fieldClass = `w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 [color-scheme:dark] disabled:bg-slate-800/60 disabled:text-slate-400 ${focusRing}`;
+  const fieldClass = `w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-500 [color-scheme:light] disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:[color-scheme:dark] dark:disabled:bg-slate-800/60 dark:disabled:text-slate-400 ${focusRing}`;
 
-  const pageBtn = `min-w-9 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`;
+  const pageBtn = `min-w-9 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 ${focusRing}`;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10 text-slate-100">
-      {/* Rich text content styles (Tailwind preflight removes list/heading defaults) */}
-      <style>{`
-        .rich { caret-color: #e2e8f0; }
-        .rich h2 { font-size: 1.25rem; font-weight: 600; margin: .75rem 0 .4rem; color: #f8fafc; }
-        .rich p { margin: .4rem 0; }
-        .rich ul { list-style: disc; padding-left: 1.4rem; margin: .4rem 0; }
-        .rich ol { list-style: decimal; padding-left: 1.4rem; margin: .4rem 0; }
-        .rich li::marker { color: #818cf8; }
-        .rich strong { color: #f8fafc; }
-        .rich blockquote { border-left: 3px solid #6366f1; padding-left: .8rem; color: #94a3b8; margin: .5rem 0; }
-        .rich pre { background: #020617; color: #e2e8f0; border: 1px solid #1e293b; padding: .75rem; border-radius: .5rem; overflow-x: auto; margin: .5rem 0; }
-        .rich code { font-family: ui-monospace, monospace; font-size: .9em; }
-        .rich :not(pre) > code { background: #1e293b; color: #c7d2fe; padding: .1rem .35rem; border-radius: .25rem; }
-        .rich a { color: #a5b4fc; text-decoration: underline; }
-      `}</style>
-
+    <main className="theme-scope mx-auto max-w-5xl px-4 py-10 text-slate-900 dark:text-slate-100">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Mentor dashboard
           </h1>
           <p className="mt-1 text-slate-400">
@@ -587,7 +571,7 @@ const Page = () => {
       {/* ------------------------------ Cards ------------------------------ */}
       <section aria-labelledby="list-heading">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="list-heading" className="text-xl font-semibold text-white">
+          <h2 id="list-heading" className="text-xl font-semibold text-slate-900 dark:text-white">
             Posted assignments
           </h2>
           <input
@@ -596,7 +580,7 @@ const Page = () => {
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search batch, title or description"
             aria-label="Search assignments by batch, title or description"
-            className={`w-72 max-w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 [color-scheme:dark] ${focusRing}`}
+            className={`w-72 max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 [color-scheme:light] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:[color-scheme:dark] ${focusRing}`}
           />
         </div>
 
@@ -638,7 +622,7 @@ const Page = () => {
                       deleting ? "opacity-50" : ""
                     }`}>
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-lg font-semibold leading-snug text-white">
+                      <h3 className="text-lg font-semibold leading-snug text-slate-900 dark:text-white">
                         {a.title}
                       </h3>
                       <span
@@ -655,12 +639,12 @@ const Page = () => {
                       </span>
                     </div>
 
-                    <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-950/60 p-3 text-sm">
+                    <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-100 p-3 text-sm dark:bg-slate-950/60">
                       <div>
                         <dt className="text-xs uppercase tracking-wide text-slate-500">
                           Batch
                         </dt>
-                        <dd className="mt-0.5 font-medium text-slate-100">
+                        <dd className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">
                           {a.batch}
                         </dd>
                       </div>
@@ -668,7 +652,7 @@ const Page = () => {
                         <dt className="text-xs uppercase tracking-wide text-slate-500">
                           Deadline
                         </dt>
-                        <dd className="mt-0.5 font-medium text-slate-100">
+                        <dd className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">
                           {formatDate(a.deadline)}
                         </dd>
                       </div>
@@ -699,7 +683,7 @@ const Page = () => {
                       </button>
                       <Link
                         href={`/submitted_assigment?assigmentId=${a.id}`}
-                        className={`inline-flex items-center justify-center rounded-md border border-slate-700 bg-slate-800/40 px-3 py-1 text-sm font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 ${focusRing}`}>
+                        className={`inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800 ${focusRing}`}>
                         Submission
                       </Link>
                       <ShareMenu id={a.id} title={a.title} />
@@ -735,7 +719,7 @@ const Page = () => {
                     setLimit(Number(e.target.value));
                     setPage(1);
                   }}
-                  className={`rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 [color-scheme:dark] ${focusRing}`}>
+                  className={`rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-900 [color-scheme:light] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] ${focusRing}`}>
                   {PAGE_SIZES.map((n) => (
                     <option key={n} value={n}>
                       {n}
@@ -796,7 +780,7 @@ const Page = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="form-heading"
-            className="my-8 w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-black/60">
+            className="my-8 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-900/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/60">
             <h2
               id="form-heading"
               className="mb-5 text-xl font-semibold text-white">
@@ -808,7 +792,7 @@ const Page = () => {
                 <div>
                   <label
                     htmlFor="batch"
-                    className="mb-1 block text-sm font-medium text-slate-300">
+                    className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Batch
                   </label>
                   <input
@@ -825,7 +809,7 @@ const Page = () => {
                 <div>
                   <label
                     htmlFor="deadline"
-                    className="mb-1 block text-sm font-medium text-slate-300">
+                    className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                     Deadline
                   </label>
                   <input
@@ -843,7 +827,7 @@ const Page = () => {
               <div>
                 <label
                   htmlFor="title"
-                  className="mb-1 block text-sm font-medium text-slate-300">
+                  className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Title
                 </label>
                 <input
@@ -858,7 +842,7 @@ const Page = () => {
               </div>
 
               <div>
-                <span className="mb-1 block text-sm font-medium text-slate-300">
+                <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Description
                 </span>
                 <div className="overflow-hidden rounded-md border border-slate-700 bg-slate-950 focus-within:outline focus-within:outline-2 focus-within:outline-indigo-400">

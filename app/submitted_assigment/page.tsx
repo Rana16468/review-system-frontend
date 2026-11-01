@@ -316,7 +316,7 @@ const ToolbarButton = ({
     aria-label={title}
     onMouseDown={(e) => e.preventDefault()}
     onClick={onClick}
-    className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-sm text-slate-300 transition hover:bg-slate-700 hover:text-white ${className}`}>
+    className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-sm text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white ${className}`}>
     {label}
   </button>
 );
@@ -463,7 +463,7 @@ const MarkModal = ({
         <button
           onClick={onClose}
           aria-label="Close"
-          className={`rounded-xl p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white ${focusRing}`}>
+          className={`rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white ${focusRing}`}>
           <Icon path={ICONS.close} className="h-5 w-5" />
         </button>
       </div>
@@ -598,7 +598,7 @@ const ClampedHtml = ({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className={`mt-1 rounded text-xs font-semibold text-indigo-300 hover:text-indigo-200 ${focusRing}`}>
+          className={`mt-1 rounded text-xs font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200 ${focusRing}`}>
           {expanded ? "See less" : "See more"}
         </button>
       )}
@@ -1075,13 +1075,21 @@ const SubmittedAssignmentContent = () => {
       confirmButtonColor: "#e11d48",
       cancelButtonColor: "#475569",
       // dark popup to match the page
-      background: "#0f172a",
-      color: "#e2e8f0",
+      background:
+        document.documentElement.dataset.theme === "dark" ? "#0f172a" : "#ffffff",
+      color:
+        document.documentElement.dataset.theme === "dark" ? "#e2e8f0" : "#0f172a",
       reverseButtons: true,
       focusCancel: true,
       showLoaderOnConfirm: true,
       allowOutsideClick: () => !Swal.isLoading(),
-      customClass: { popup: "rounded-3xl border border-slate-800" },
+      customClass: {
+        popup: `rounded-3xl border ${
+          document.documentElement.dataset.theme === "dark"
+            ? "border-slate-800"
+            : "border-slate-200"
+        }`,
+      },
       preConfirm: async () => {
         try {
           await deleteSubmission(submission.id).unwrap();
@@ -1104,7 +1112,7 @@ const SubmittedAssignmentContent = () => {
 
   if (!assignmentId) {
     return (
-      <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
+      <main className="theme-scope min-h-screen bg-slate-950 px-4 py-10 text-slate-900 dark:text-slate-100">
         <div className="mx-auto max-w-5xl">
           <EmptyState filtered={false} />
           <p className="mt-4 text-center text-sm text-slate-400">
@@ -1120,7 +1128,7 @@ const SubmittedAssignmentContent = () => {
   const assignmentTitle = submissions[0]?.assignment.title;
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 sm:py-8">
+    <main className="theme-scope min-h-screen bg-slate-950 px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 sm:py-8">
       <div className="mx-auto grid max-w-7xl items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* Left: analytics (stays in view while the list scrolls) */}
         <aside className="lg:sticky lg:top-6">
@@ -1179,7 +1187,7 @@ const SubmittedAssignmentContent = () => {
                       className={`shrink-0 rounded-md px-3 py-1 text-sm font-medium transition ${focusRing} ${
                         active
                           ? "bg-indigo-600 text-white shadow-sm"
-                          : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                       }`}>
                       {s === "ALL" ? "All" : STATUS_STYLES[s].label}
                     </button>
@@ -1235,7 +1243,7 @@ const SubmittedAssignmentContent = () => {
 const Page = () => (
   <Suspense
     fallback={
-      <main className="min-h-screen bg-slate-950 px-4 py-12">
+      <main className="theme-scope min-h-screen bg-slate-950 px-4 py-12">
         <div className="mx-auto max-w-6xl">
           <GridSkeleton />
         </div>

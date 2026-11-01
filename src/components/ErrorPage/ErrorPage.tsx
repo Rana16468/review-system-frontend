@@ -72,20 +72,28 @@ const ErrorPage: React.FC<ErrorProps> = ({ error }) => {
   const { message, errorSources = [], err = {}, stack = "" } = normalizeError(error);
 
   return (
-    <div style={styles.container}>
+    <div className="mx-auto my-6 max-w-3xl rounded-xl border border-rose-200 bg-rose-50 p-6 text-slate-800 shadow-md dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-slate-200">
       {/* Header / Status Banner */}
-      <div style={styles.header}>
-        {typeof err?.statusCode === "number" && <span style={styles.badge}>{err.statusCode}</span>}
-        <h2 style={styles.title}>{message}</h2>
+      <div className="mb-4 flex items-center gap-3 border-b border-rose-200 pb-3 dark:border-rose-900/70">
+        {typeof err?.statusCode === "number" && (
+          <span className="rounded bg-rose-600 px-2.5 py-1 text-sm font-bold text-white">
+            {err.statusCode}
+          </span>
+        )}
+        <h2 className="m-0 text-lg font-semibold text-rose-800 dark:text-rose-200">
+          {message}
+        </h2>
       </div>
 
       {/* Error Sources Breakdown */}
       {errorSources.length > 0 && (
-        <div style={styles.section}>
-          <h4 style={styles.sectionTitle}>Error Details</h4>
-          <ul style={styles.list}>
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-rose-800 dark:text-rose-300">
+            Error Details
+          </h4>
+          <ul className="m-0 list-disc space-y-1 pl-5 text-rose-800 dark:text-rose-200">
             {errorSources.map((source: TErrorSource, index: number) => (
-              <li key={index} style={styles.listItem}>
+              <li key={index} className="text-sm">
                 {source.path !== "" && <strong>{source.path}: </strong>}
                 <span>{source.message}</span>
               </li>
@@ -96,79 +104,17 @@ const ErrorPage: React.FC<ErrorProps> = ({ error }) => {
 
       {/* Stack Trace */}
       {stack && (
-        <div style={styles.section}>
-          <h4 style={styles.sectionTitle}>Stack Trace</h4>
-          <pre style={styles.stack}>{stack}</pre>
+        <div className="mt-4">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-rose-800 dark:text-rose-300">
+            Stack Trace
+          </h4>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-rose-100 p-3.5 font-mono text-xs text-rose-950 dark:bg-slate-900 dark:text-slate-200">
+            {stack}
+          </pre>
         </div>
       )}
     </div>
   );
 };
-
-// Strongly-typed CSS styles
-const styles = {
-  container: {
-    maxWidth: "700px",
-    margin: "20px auto",
-    padding: "24px",
-    borderRadius: "8px",
-    backgroundColor: "#fff5f5",
-    border: "1px solid #feb2b2",
-    color: "#2d3748",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    borderBottom: "1px solid #fed7d7",
-    paddingBottom: "12px",
-    marginBottom: "16px",
-  },
-  badge: {
-    backgroundColor: "#e53e3e",
-    color: "#ffffff",
-    padding: "4px 10px",
-    borderRadius: "4px",
-    fontSize: "14px",
-    fontWeight: "bold",
-  },
-  title: {
-    margin: 0,
-    fontSize: "18px",
-    color: "#c53030",
-  },
-  section: {
-    marginTop: "16px",
-  },
-  sectionTitle: {
-    margin: "0 0 8px 0",
-    fontSize: "14px",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: "#742a2a",
-  },
-  list: {
-    margin: 0,
-    paddingLeft: "20px",
-    color: "#9b2c2c",
-  },
-  listItem: {
-    marginBottom: "4px",
-    fontSize: "14px",
-  },
-  stack: {
-    backgroundColor: "#2d3748",
-    color: "#f7fafc",
-    padding: "14px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    overflowX: "auto",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-    fontFamily: "Courier New, Courier, monospace",
-  },
-} satisfies Record<string, React.CSSProperties>;
 
 export default ErrorPage;
